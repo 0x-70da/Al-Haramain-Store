@@ -13,16 +13,366 @@ datasource db {
   provider = "postgresql"
 }
 
-model User {
-  id    Int     @id @default(autoincrement())
-  email String  @unique
-  name  String?
+model User {  
+  id  String @id @default(cuid())
+  name String
+  email String @unique
+  password_hash String
+  phone String? @unique
+  role UserRole @default(USER)            // user | admin | staff
+  is_verified Boolean @default(false)
+  is_active Boolean @default(true)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  last_login_at DateTime?
+
+  addresses Address[]
+  orders Order[]
+  reviews Review[]
+  cart Cart?
+  wishlist Wishlist?
+
+  @@map("users")
 }
 
-model Post {
-  id        Int      @id @default(autoincrement())
-  title     String
-  content   String?
-  published Boolean  @default(false)
-  authorId  Int
+enum UserRole {
+  USER
+  ADMIN
+  STAFF
+}
+
+
+model Address {
+  id String @id @default(uuid())
+  user_id String 
+  user User @relation(fields: [user_id], references: [id])
+
+  full_name String
+  phone String
+
+  country String
+  city String
+  area String
+  street String
+  building String
+  apartment String?
+  postal_code String?
+
+  notes String?
+  
+  is_default Boolean @default(false)
+
+  orders Order[] @relation("AddressToOrder")
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([user_id])
+  @@map("addresses")
+}
+
+
+model Product {
+  id  String @id @default(uuid())
+
+  name String
+  slug String @unique
+
+  description String
+  short_description String
+
+  images ProductImage[]
+
+  price Decimal @db.Decimal(10, 2)
+  discount_price Decimal? @db.Decimal(10, 2)
+
+  stock_quantity Int
+  sku String @unique
+
+  category_id String
+  category Category @relation(fields: [category_id], references: [id])
+
+  brand_id String
+  brand Brand @relation(fields: [brand_id], references: [id])
+
+  rating Decimal @default(0) @db.Decimal(2, 1)
+  review_count Int @default(0)
+
+  is_active Boolean @default(true)
+  is_featured Boolean @default(false)
+
+  cart_items CartItem[] // Added relation field for CartItem
+  order_items OrderItem[] // Added relation field for OrderItem
+  reviews    Review[]    // Added relation field for Review
+  wishlist_items WishlistItem[] // Added relation field for WishlistItem
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([category_id, brand_id])
+  @@map("products")
+}
+
+model ProductImage {
+  id String @id @default(cuid())
+  product_id String
+  product Product @relation(fields: [product_id], references: [id])
+
+  image_url String
+  alt_text String?
+
+  is_main Boolean @default(false)
+  position Int @default(0)
+  created_at DateTime @default(now())
+
+  @@index([product_id])
+  @@map("product_images")
+}
+
+model Category {
+  id String @id @default(cuid())
+  name String 
+  slug String @unique
+
+  parent_id String? // عشان sub-categories
+  parent Category? @relation("CategoryToCategory", fields: [parent_id], references: [id])
+  children Category[] @relation("CategoryToCategory")
+
+  image_url        String?
+  meta_title       String?
+  meta_description String?
+
+  is_active Boolean @default(true)
+  position Int @default(0)
+
+  products Product[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt  
+
+  @@index([parent_id])
+  @@map("categories")
+}
+
+model Cart {
+  id        String   @id @default(cuid())
+
+  user_id    String   @unique
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  status    CartStatus @default(ACTIVE)
+  expires_at DateTime?
+
+  items     CartItem[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([user_id])
+  @@map("carts")
+}
+
+enum CartStatus {
+  ACTIVE
+  ABANDONED
+  CONVERTED
+}
+
+
+model CartItem {
+  id            String   @id @default(cuid())
+
+  cart_id        String
+  cart          Cart     @relation(fields: [cart_id], references: [id], onDelete: Cascade)
+
+  product_id     String
+  product       Product  @relation(fields: [product_id], references: [id])
+
+  quantity      Int
+  unit_price     Decimal  @db.Decimal(10, 2)
+  discount_price Decimal? @db.Decimal(10, 2)
+  total_price    Decimal  @db.Decimal(10, 2)
+
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  @@unique([cart_id, product_id])
+  @@map("cart_items")
+}
+
+
+model Order {
+  id            String   @id @default(cuid())
+  order_number   String   @unique
+
+  user_id        String
+  user          User     @relation(fields: [user_id], references: [id])
+
+  address_id     String
+  address       Address  @relation("AddressToOrder", fields: [address_id], references: [id])
+
+  subtotal      Decimal  @db.Decimal(10, 2)
+  shipping_fee   Decimal  @db.Decimal(10, 2)
+  tax           Decimal  @db.Decimal(10, 2)
+  discount      Decimal  @db.Decimal(10, 2)
+  total_price    Decimal  @db.Decimal(10, 2)
+
+  payment_method PaymentMethod
+  payment_status PaymentStatus @default(PENDING)
+
+  order_status   OrderStatus   @default(PENDING)
+
+  tracking_number String?
+
+  items         OrderItem[]
+
+  payments      Payment[]
+
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  @@index([user_id])
+  @@map("orders")
+}
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+
+model OrderItem {
+  id            String   @id @default(cuid())
+
+  order_id       String
+  order         Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  product_id     String
+  product       Product  @relation(fields: [product_id], references: [id])
+
+  product_name   String
+  product_sku    String
+
+  unit_price     Decimal  @db.Decimal(10, 2)
+  discount_price Decimal? @db.Decimal(10, 2)
+  quantity      Int
+  total_price    Decimal  @db.Decimal(10, 2)
+
+  created_at     DateTime @default(now())
+  review        Review?  @relation("OrderItemToReview")
+
+  @@index([order_id])
+  @@map("order_items")
+}
+
+
+model Payment {
+  id              String   @id @default(cuid())
+
+  order_id         String
+  order           Order    @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  provider        PaymentProvider
+  payment_intent_id String   @unique
+
+  amount          Decimal  @db.Decimal(10, 2)
+  currency        String   @default("USD")
+
+  status          PaymentStatus @default(PENDING)
+
+  failure_reason   String?
+  paid_at          DateTime?
+
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+  @@index([order_id])
+  @@map("payments")
+}
+
+enum PaymentProvider {
+  STRIPE
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  STRIPE
+  COD
+}
+
+
+model Review {
+  id          String   @id @default(cuid())
+
+  user_id      String
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  product_id   String
+  product     Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  order_item_id String   @unique
+  order_item   OrderItem @relation("OrderItemToReview", fields: [order_item_id], references: [id], onDelete: Cascade)
+
+  rating      Int
+  comment     String?  @db.Text
+
+  is_verified  Boolean  @default(false)
+  is_approved  Boolean  @default(true)
+
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  @@index([product_id])
+  @@index([user_id])
+  @@map("reviews")
+}
+
+
+model Wishlist {
+  id        String   @id @default(cuid())
+
+  user_id    String   @unique
+  user      User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  items     WishlistItem[]
+
+  created_at DateTime @default(now())
+  @@map("wishlists")
+}
+
+
+model WishlistItem {
+  id          String   @id @default(cuid())
+
+  wishlist_id  String
+  wishlist    Wishlist @relation(fields: [wishlist_id], references: [id], onDelete: Cascade)
+
+  product_id   String
+  product     Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  created_at   DateTime @default(now())
+
+  @@unique([wishlist_id, product_id])
+  @@index([product_id])
+  @@map("wishlist_items")
+}
+
+model Brand {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  logo_url     String?
+  description String?
+  is_active    Boolean  @default(true)
+
+  products    Product[]
+
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+  @@map("brands")
 }
